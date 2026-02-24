@@ -17,7 +17,7 @@ suffix = "-EventLog-TEMP"
 current_directory = os.path.dirname(os.path.abspath(__file__))
 eventLogScript = "getWindowsEventLogs.ps1"
 eventLogScriptPath = os.path.join(current_directory, "getWindowsEventLogs.ps1")
-
+#
 
 def fileTransfer(vm, creds, content, scriptPath, tempDir, script):
     try:

@@ -1,7 +1,17 @@
 name: Management Pack CI
 
 on:
+  push:
+    branches-ignore:
+      - main
+      - codex/**
+    paths:
+      - "Management Pack/**"
+      - ".github/workflows/management-pack-ci.yml"
+
   pull_request:
+    branches:
+      - main
     paths:
       - "Management Pack/**"
       - ".github/workflows/management-pack-ci.yml"
