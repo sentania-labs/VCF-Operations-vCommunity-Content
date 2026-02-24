@@ -1,0 +1,130 @@
+name: Management Pack CI
+
+on:
+  pull_request:
+    paths:
+      - "Management Pack/**"
+      - ".github/workflows/management-pack-ci.yml"
+  workflow_dispatch:
+
+jobs:
+  sdk-validation:
+    runs-on: ${{ vars.MP_CI_RUNNER || 'ubuntu-latest' }}
+    env:
+      VENV_DIR: ${{ runner.temp }}/vcf-mp-sdk-venv
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Create isolated virtual environment
+        run: python -m venv "$VENV_DIR"
+
+      - name: Install SDK tooling in venv
+        run: |
+          source "$VENV_DIR/bin/activate"
+          python -m pip install --upgrade pip
+          pip install -r "Management Pack/requirements.txt"
+
+      - name: Validate adapter definition with SDK mp-test
+        run: |
+          source "$VENV_DIR/bin/activate"
+          mp-test -p "Management Pack" adapter_definition
+
+      - name: Cleanup virtual environment
+        if: always()
+        run: rm -rf "$VENV_DIR"
+
+  sdk-integration-smoke-test:
+    runs-on: ${{ vars.MP_CI_RUNNER || 'ubuntu-latest' }}
+    needs: sdk-validation
+    if: ${{ secrets.VCF_OPS_HOST != '' && secrets.VCF_OPS_USERNAME != '' && secrets.VCF_OPS_PASSWORD != '' && secrets.VCENTER_HOST != '' && secrets.VCENTER_USERNAME != '' && secrets.VCENTER_PASSWORD != '' }}
+    env:
+      VENV_DIR: ${{ runner.temp }}/vcf-mp-sdk-venv
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Create isolated virtual environment
+        run: python -m venv "$VENV_DIR"
+
+      - name: Install SDK tooling in venv
+        run: |
+          source "$VENV_DIR/bin/activate"
+          python -m pip install --upgrade pip
+          pip install -r "Management Pack/requirements.txt"
+
+      - name: Backup repository connection files
+        shell: bash
+        run: |
+          cp "Management Pack/connections.json" "$RUNNER_TEMP/connections.json.bak" || true
+
+      - name: Create CI SDK connection profile
+        shell: bash
+        env:
+          VCF_OPS_HOST: ${{ secrets.VCF_OPS_HOST }}
+          VCF_OPS_USERNAME: ${{ secrets.VCF_OPS_USERNAME }}
+          VCF_OPS_PASSWORD: ${{ secrets.VCF_OPS_PASSWORD }}
+          VCENTER_HOST: ${{ secrets.VCENTER_HOST }}
+          VCENTER_USERNAME: ${{ secrets.VCENTER_USERNAME }}
+          VCENTER_PASSWORD: ${{ secrets.VCENTER_PASSWORD }}
+          VCENTER_PORT: ${{ vars.VCENTER_PORT || '443' }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          connections = {
+            "suite_api_hostname": os.environ["VCF_OPS_HOST"],
+            "suite_api_username": os.environ["VCF_OPS_USERNAME"],
+            "suite_api_password": os.environ["VCF_OPS_PASSWORD"],
+            "connections": [
+              {
+                "name": "ci",
+                "identifiers": {
+                  "host": os.environ["VCENTER_HOST"],
+                  "port": os.environ["VCENTER_PORT"]
+                },
+                "credential": {
+                  "user": os.environ["VCENTER_USERNAME"],
+                  "password": os.environ["VCENTER_PASSWORD"]
+                }
+              }
+            ]
+          }
+
+          Path("Management Pack/connections.json").write_text(json.dumps(connections, indent=2))
+          PY
+
+      - name: Run SDK connect smoke test
+        run: |
+          source "$VENV_DIR/bin/activate"
+          mp-test -p "Management Pack" -c ci connect
+
+      - name: Run SDK collect smoke test
+        run: |
+          source "$VENV_DIR/bin/activate"
+          mp-test -p "Management Pack" -c ci collect -n 1 -w 5m
+
+      - name: Restore repository connection files
+        if: always()
+        run: |
+          if [ -f "$RUNNER_TEMP/connections.json.bak" ]; then
+            mv "$RUNNER_TEMP/connections.json.bak" "Management Pack/connections.json"
+          else
+            rm -f "Management Pack/connections.json"
+          fi
+
+      - name: Cleanup virtual environment
+        if: always()
+        run: rm -rf "$VENV_DIR"
