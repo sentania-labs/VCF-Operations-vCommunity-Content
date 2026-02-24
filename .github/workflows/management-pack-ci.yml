@@ -19,7 +19,7 @@ on:
 
 jobs:
   sdk-validation:
-    runs-on: ${{ vars.mp_ci_runner || 'ubuntu-latest' }}
+        runs-on: [self-hosted, generic]
     env:
       VENV_DIR: /tmp/vcf-mp-sdk-venv
     steps:
@@ -50,7 +50,7 @@ jobs:
         run: rm -rf "$VENV_DIR"
 
   sdk-integration-smoke-test:
-    runs-on: ${{ vars.mp_ci_runner || 'ubuntu-latest' }}
+    runs-on: [self-hosted, generic]
     needs: sdk-validation
     env:
       VENV_DIR: /tmp/vcf-mp-sdk-venv
