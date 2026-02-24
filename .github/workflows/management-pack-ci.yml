@@ -19,7 +19,7 @@ on:
 
 jobs:
   sdk-validation:
-        runs-on: [self-hosted, generic]
+    runs-on: [self-hosted, generic]
     env:
       VENV_DIR: /tmp/vcf-mp-sdk-venv
     steps:
