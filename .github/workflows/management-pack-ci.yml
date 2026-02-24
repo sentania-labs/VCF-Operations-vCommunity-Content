@@ -9,9 +9,9 @@ on:
 
 jobs:
   sdk-validation:
-    runs-on: ${{ vars.MP_CI_RUNNER || 'ubuntu-latest' }}
+    runs-on: ${{ vars.mp_ci_runner || 'ubuntu-latest' }}
     env:
-      VENV_DIR: ${{ runner.temp }}/vcf-mp-sdk-venv
+      VENV_DIR: /tmp/vcf-mp-sdk-venv
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -40,11 +40,17 @@ jobs:
         run: rm -rf "$VENV_DIR"
 
   sdk-integration-smoke-test:
-    runs-on: ${{ vars.MP_CI_RUNNER || 'ubuntu-latest' }}
+    runs-on: ${{ vars.mp_ci_runner || 'ubuntu-latest' }}
     needs: sdk-validation
-    if: ${{ secrets.VCF_OPS_HOST != '' && secrets.VCF_OPS_USERNAME != '' && secrets.VCF_OPS_PASSWORD != '' && secrets.VCENTER_HOST != '' && secrets.VCENTER_USERNAME != '' && secrets.VCENTER_PASSWORD != '' }}
     env:
-      VENV_DIR: ${{ runner.temp }}/vcf-mp-sdk-venv
+      VENV_DIR: /tmp/vcf-mp-sdk-venv
+      VCF_OPS_HOST: ${{ secrets.VCF_OPS_HOST }}
+      VCF_OPS_USERNAME: ${{ secrets.VCF_OPS_USERNAME }}
+      VCF_OPS_PASSWORD: ${{ secrets.VCF_OPS_PASSWORD }}
+      VCENTER_HOST: ${{ secrets.VCENTER_HOST }}
+      VCENTER_USERNAME: ${{ secrets.VCENTER_USERNAME }}
+      VCENTER_PASSWORD: ${{ secrets.VCENTER_PASSWORD }}
+      VCENTER_PORT: "443"
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -54,30 +60,50 @@ jobs:
         with:
           python-version: "3.10"
 
+      - name: Apply optional vCenter port variable
+        run: |
+          if [ -n "${{ vars.VCENTER_PORT }}" ]; then
+            echo "VCENTER_PORT=${{ vars.VCENTER_PORT }}" >> "$GITHUB_ENV"
+          fi
+
+      - name: Check required secrets
+        id: secret_check
+        run: |
+          missing=0
+          for key in VCF_OPS_HOST VCF_OPS_USERNAME VCF_OPS_PASSWORD VCENTER_HOST VCENTER_USERNAME VCENTER_PASSWORD; do
+            if [ -z "${!key}" ]; then
+              echo "Missing required secret mapped to: $key"
+              missing=1
+            fi
+          done
+
+          if [ "$missing" -eq 1 ]; then
+            echo "run_smoke=false" >> "$GITHUB_OUTPUT"
+            echo "Skipping smoke tests because required secrets are not configured."
+          else
+            echo "run_smoke=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Create isolated virtual environment
+        if: steps.secret_check.outputs.run_smoke == 'true'
         run: python -m venv "$VENV_DIR"
 
       - name: Install SDK tooling in venv
+        if: steps.secret_check.outputs.run_smoke == 'true'
         run: |
           source "$VENV_DIR/bin/activate"
           python -m pip install --upgrade pip
           pip install -r "Management Pack/requirements.txt"
 
       - name: Backup repository connection files
+        if: steps.secret_check.outputs.run_smoke == 'true'
         shell: bash
         run: |
-          cp "Management Pack/connections.json" "$RUNNER_TEMP/connections.json.bak" || true
+          cp "Management Pack/connections.json" /tmp/connections.json.bak || true
 
       - name: Create CI SDK connection profile
+        if: steps.secret_check.outputs.run_smoke == 'true'
         shell: bash
-        env:
-          VCF_OPS_HOST: ${{ secrets.VCF_OPS_HOST }}
-          VCF_OPS_USERNAME: ${{ secrets.VCF_OPS_USERNAME }}
-          VCF_OPS_PASSWORD: ${{ secrets.VCF_OPS_PASSWORD }}
-          VCENTER_HOST: ${{ secrets.VCENTER_HOST }}
-          VCENTER_USERNAME: ${{ secrets.VCENTER_USERNAME }}
-          VCENTER_PASSWORD: ${{ secrets.VCENTER_PASSWORD }}
-          VCENTER_PORT: ${{ vars.VCENTER_PORT || '443' }}
         run: |
           python - <<'PY'
           import json
@@ -107,24 +133,26 @@ jobs:
           PY
 
       - name: Run SDK connect smoke test
+        if: steps.secret_check.outputs.run_smoke == 'true'
         run: |
           source "$VENV_DIR/bin/activate"
           mp-test -p "Management Pack" -c ci connect
 
       - name: Run SDK collect smoke test
+        if: steps.secret_check.outputs.run_smoke == 'true'
         run: |
           source "$VENV_DIR/bin/activate"
           mp-test -p "Management Pack" -c ci collect -n 1 -w 5m
 
       - name: Restore repository connection files
-        if: always()
+        if: always() && steps.secret_check.outputs.run_smoke == 'true'
         run: |
-          if [ -f "$RUNNER_TEMP/connections.json.bak" ]; then
-            mv "$RUNNER_TEMP/connections.json.bak" "Management Pack/connections.json"
+          if [ -f /tmp/connections.json.bak ]; then
+            mv /tmp/connections.json.bak "Management Pack/connections.json"
           else
             rm -f "Management Pack/connections.json"
           fi
 
       - name: Cleanup virtual environment
-        if: always()
+        if: always() && steps.secret_check.outputs.run_smoke == 'true'
         run: rm -rf "$VENV_DIR"
