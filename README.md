@@ -56,3 +56,36 @@ Additional Properties & Metrics:
 - Virtual Machine Snapshot Count
   
 Login to VMware Hands-on Lab, then test drive [this MP](https://labs.hol.vmware.com/HOL/catalog/lab/26848). [Abhijit Timble](https://www.linkedin.com/in/abhijit-timble-75878514/) has installed it so you can evaluate it before deciding in your environment.
+
+## GitHub Actions automation for Management Pack testing
+
+A workflow is available at `.github/workflows/management-pack-ci.yml` to automate Management Pack validation in CI/CD using the SDK-native `mp-test` tool.
+
+### How this aligns with the SDK `mp-test` function
+- Uses `mp-test adapter_definition` to validate the adapter definition through the same SDK harness used during normal Management Pack development.
+- Uses `mp-test connect` to exercise the adapter test-connection path.
+- Uses `mp-test collect` to run a collection cycle and validate runtime behavior through the SDK containerized execution path.
+- Uses a generated `connections.json` profile in CI so `mp-test` receives identifiers, credentials, and Suite API connection fields in the expected SDK format.
+
+### Required GitHub Secrets
+- `VCF_OPS_HOST`
+- `VCF_OPS_USERNAME`
+- `VCF_OPS_PASSWORD`
+- `VCENTER_HOST`
+- `VCENTER_USERNAME`
+- `VCENTER_PASSWORD`
+
+### Optional GitHub Variables
+- `VCENTER_PORT` (default: `443`)
+
+This provides an SDK-consistent, repeatable automation path for pull requests while still supporting live smoke tests against a reachable VCF Operations instance.
+
+
+### Running cleanly on static self-hosted runners
+The workflow is designed to avoid polluting long-lived runners:
+- Creates an isolated virtual environment under `/tmp` for each job.
+- Installs SDK tooling only inside that venv (no global `pip` installs).
+- Removes the venv in an `if: always()` cleanup step.
+- Backs up and restores `Management Pack/connections.json` so CI secrets do not persist in the checked-out workspace after the run.
+
+If your self-hosted runner is very long-lived, you can also add periodic Docker cleanup outside this workflow (for example, scheduled host maintenance) because `mp-test` runs containerized workloads.
